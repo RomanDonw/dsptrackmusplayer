@@ -98,7 +98,7 @@ unsigned short dspmodule_startup(const DSPLoaderAPI *lapi, int argc, char * cons
     else printf("repeat count: %i\n", repeatcount);
 
     *sysname = "trackmusicplayer";
-    *dispname = "looped track music player";
+    *dispname = "simple track music player";
     return 0;
 }
 

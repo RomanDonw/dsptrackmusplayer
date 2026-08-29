@@ -14,6 +14,8 @@
 #include <stdbool.h>
 #include <libopenmpt/libopenmpt.h>
 
+const unsigned short dspmodule_requiredAPIversion = 0;
+
 static float ampmod = 0, volmod = 0.1;
 static void *outportl, *outportr;
 static openmpt_module *mod;

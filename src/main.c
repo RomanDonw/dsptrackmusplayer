@@ -14,7 +14,7 @@
 #include <stdbool.h>
 #include <libopenmpt/libopenmpt.h>
 
-const unsigned short dspmodule_requiredAPIversion = 1;
+const unsigned short dspmodule_requiredAPIversion = 3;
 
 static float ampmod = 0, volmod = 0.1;
 static void *outportl, *outportr;
@@ -34,11 +34,11 @@ unsigned short dspmodule_startup(const DSPLoaderAPI *lapi, int argc, char * cons
             switch (p)
             {
                 case 'a':
-                    if (sscanf(optarg, "%f", &ampmod) < 1) { puts("error parsing option -a"); return 1; }
+                    if (sscanf(optarg, "%f", &ampmod) < 1) goto parseoptfail;
                     break;
 
                 case 'v':
-                    if (sscanf(optarg, "%f", &volmod) < 1) { puts("error parsing option -v"); return 1; }
+                    if (sscanf(optarg, "%f", &volmod) < 1) goto parseoptfail;
                     break;
 
                 case 'f':
@@ -50,31 +50,35 @@ unsigned short dspmodule_startup(const DSPLoaderAPI *lapi, int argc, char * cons
                     break;
 
                 case 'l':
-                    if (sscanf(optarg, "%i", &repeatcount) < 0) { puts("error parsing option -l"); return 1; }
+                    if (sscanf(optarg, "%i", &repeatcount) < 0) goto parseoptfail;
                     if (repeatcount < 0) repeatcount = -1;
                     break;
+
+                parseoptfail:
+                    lapi->log(DSPLogLevel_Fatal, "failed parsing option -%c", (char)p);
+                return 1;
             }
         }
     }
 
-    if (!infilepath) { puts("specify source tracker module file through -f parameter"); return 1; }
+    if (!infilepath) { lapi->log(DSPLogLevel_Fatal, "specify source tracker module file through -f parameter"); return 1; }
 
-    if (!(outportl = lapi->addport("left", NULL, DSPPortDirection_Output, 0))) { puts("error creating output port for left audio channel"); return 1; }
-    if (!(outportr = lapi->addport("right", NULL, DSPPortDirection_Output, 0))) { puts("error creating output port for right audio channel)"); return 1; }
+    if (!(outportl = lapi->addport("left", NULL, DSPPortDirection_Output, 0))) { lapi->log(DSPLogLevel_Fatal, "error creating output port for left audio channel"); return 1; }
+    if (!(outportr = lapi->addport("right", NULL, DSPPortDirection_Output, 0))) { lapi->log(DSPLogLevel_Fatal, "error creating output port for right audio channel)"); return 1; }
 
     FILE *f = fopen(infilepath, "rb");
-    if (!f) { puts("unable to open specified file"); return 1; }
+    if (!f) { lapi->log(DSPLogLevel_Fatal, "unable to open specified file"); return 1; }
 
     fseek(f, 0, SEEK_END);
     size_t infilesize = ftell(f);
     fseek(f, 0, SEEK_SET);
 
     void *infiledata = malloc(infilesize);
-    if (!infiledata) { puts("memory allocation failed"); fclose(f); return 1; }
+    if (!infiledata) { lapi->log(DSPLogLevel_Fatal, "memory allocation failed"); fclose(f); return 1; }
 
     if (fread(infiledata, 1, infilesize, f) < infilesize || ferror(f))
     {
-        puts("error reading file");
+        lapi->log(DSPLogLevel_Fatal, "failed reading file");
         free(infiledata);
         fclose(f);
         return 1;
@@ -87,17 +91,17 @@ unsigned short dspmodule_startup(const DSPLoaderAPI *lapi, int argc, char * cons
     free(infiledata);
     if (!mod)
     {
-        printf("failed to parse specified tracker music file: %s\n", errmsg);
+        lapi->log(DSPLogLevel_Fatal, "failed to parse specified track music file: %s", errmsg);
         openmpt_free_string(errmsg);
         return 1;
     }
 
     openmpt_module_set_repeat_count(mod, repeatcount);
 
-    printf("in file: \"%s\"\nampmod: %f\nvolmod: %f\nquitonsongend: %s\n", infilepath, ampmod, volmod, quitonsongend ? "yes" : "no");
-    if (repeatcount < 0) puts("repeat count: forever");
-    else if (!repeatcount) puts("repeat count: play once");
-    else printf("repeat count: %i\n", repeatcount);
+    lapi->log(DSPLogLevel_Info, "in file: \"%s\"\nampmod: %f\nvolmod: %f\nquitonsongend: %s", infilepath, ampmod, volmod, quitonsongend ? "yes" : "no");
+    if (repeatcount < 0) lapi->log(DSPLogLevel_Info, "repeat count: forever");
+    else if (!repeatcount) lapi->log(DSPLogLevel_Info, "repeat count: play once");
+    else lapi->log(DSPLogLevel_Info, "repeat count: %i", repeatcount);
 
     *sysname = "trackmusicplayer";
     *dispname = "simple track music player";

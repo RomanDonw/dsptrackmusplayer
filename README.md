@@ -7,5 +7,5 @@
 - `-l` - repeat count: `= 0` - play once, `> 0` - repeat specified number of times, `< 0` - infinite playing (repeat forever).
 
 ## Dependencies
-- [loaddsp](https://github.com/RomanDonw/loaddsp).
+- [loaddsp](https://codeberg.org/RomanDonw/loaddsp).
 - libopenmpt.

@@ -10,11 +10,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <getopt.h>
-#include <stdint.h>
 #include <stdbool.h>
 #include <libopenmpt/libopenmpt.h>
 
-const unsigned short dspmodule_requiredAPIversion = 3;
+const unsigned short dspmodule_requiredAPIversion = 4;
 
 static float ampmod = 0, volmod = 0.1;
 static void *outportl, *outportr;
@@ -23,13 +22,13 @@ static bool quitonsongend = true;
 
 static void dummycallback(void) {}
 
-unsigned short dspmodule_startup(const DSPLoaderAPI *lapi, int argc, char * const argv[], const char **sysname, const char **dispname)
+DSPModuleReturnCode dspmodule_startup(const DSPLoaderAPI * restrict lapi, DSPModuleStartupFunctionOptions * restrict opts)
 {
     char *infilepath = NULL;
     int repeatcount = -1;
     {
         int p;
-        while ((p = getopt(argc, argv, "a:v:f:sl:")) != -1)
+        while ((p = getopt(opts->argc, opts->argv, "a:v:f:sl:")) != -1)
         {
             switch (p)
             {
@@ -56,32 +55,34 @@ unsigned short dspmodule_startup(const DSPLoaderAPI *lapi, int argc, char * cons
 
                 parseoptfail:
                     lapi->log(DSPLogLevel_Fatal, "failed parsing option -%c", (char)p);
-                return 1;
+                return DSPModuleReturnCode_Stop;
             }
         }
     }
 
-    if (!infilepath) { lapi->log(DSPLogLevel_Fatal, "specify source tracker module file through -f parameter"); return 1; }
+    if (!infilepath) { lapi->log(DSPLogLevel_Fatal, "specify source tracker module file through -f parameter"); return DSPModuleReturnCode_Stop; }
 
-    if (!(outportl = lapi->addport("left", NULL, DSPPortDirection_Output, 0))) { lapi->log(DSPLogLevel_Fatal, "error creating output port for left audio channel"); return 1; }
-    if (!(outportr = lapi->addport("right", NULL, DSPPortDirection_Output, 0))) { lapi->log(DSPLogLevel_Fatal, "error creating output port for right audio channel)"); return 1; }
+    if (!(outportl = lapi->addport("left", NULL, DSPPortDirection_Output, 0))) 
+    { lapi->log(DSPLogLevel_Fatal, "error creating output port for left audio channel"); return DSPModuleReturnCode_Stop; }
+    if (!(outportr = lapi->addport("right", NULL, DSPPortDirection_Output, 0)))
+    { lapi->log(DSPLogLevel_Fatal, "error creating output port for right audio channel)"); return DSPModuleReturnCode_Stop; }
 
     FILE *f = fopen(infilepath, "rb");
-    if (!f) { lapi->log(DSPLogLevel_Fatal, "unable to open specified file"); return 1; }
+    if (!f) { lapi->log(DSPLogLevel_Fatal, "unable to open specified file"); return DSPModuleReturnCode_Stop; }
 
     fseek(f, 0, SEEK_END);
     size_t infilesize = ftell(f);
     fseek(f, 0, SEEK_SET);
 
     void *infiledata = malloc(infilesize);
-    if (!infiledata) { lapi->log(DSPLogLevel_Fatal, "memory allocation failed"); fclose(f); return 1; }
+    if (!infiledata) { lapi->log(DSPLogLevel_Fatal, "memory allocation failed"); fclose(f); return DSPModuleReturnCode_Stop; }
 
     if (fread(infiledata, 1, infilesize, f) < infilesize || ferror(f))
     {
         lapi->log(DSPLogLevel_Fatal, "failed reading file");
         free(infiledata);
         fclose(f);
-        return 1;
+        return DSPModuleReturnCode_Stop;
     }
 
     fclose(f);
@@ -93,7 +94,7 @@ unsigned short dspmodule_startup(const DSPLoaderAPI *lapi, int argc, char * cons
     {
         lapi->log(DSPLogLevel_Fatal, "failed to parse specified track music file: %s", errmsg);
         openmpt_free_string(errmsg);
-        return 1;
+        return DSPModuleReturnCode_Stop;
     }
 
     openmpt_module_set_repeat_count(mod, repeatcount);
@@ -103,36 +104,36 @@ unsigned short dspmodule_startup(const DSPLoaderAPI *lapi, int argc, char * cons
     else if (!repeatcount) lapi->log(DSPLogLevel_Info, "repeat count: play once");
     else lapi->log(DSPLogLevel_Info, "repeat count: %i", repeatcount);
 
-    *sysname = "trackmusicplayer";
-    *dispname = "simple track music player";
-    return 0;
+    opts->sysname = "trackmusicplayer";
+    opts->dispname = "simple track music player";
+    return DSPModuleReturnCode_Continue;
 }
 
-unsigned short dspmodule_process(const DSPLoaderAPI *lapi, unsigned long long position, unsigned long duration, unsigned long rate, unsigned long long nsectime)
+DSPModuleReturnCode dspmodule_process(const DSPLoaderAPI * restrict lapi, DSPModuleProcessFunctionOptions * restrict opts)
 {
-    float *leftch = lapi->getportbuffer(outportl, duration);
-    if (!leftch) return 0;
-    float *rightch = lapi->getportbuffer(outportr, duration);
-    if (!rightch) return 0;
+    float *leftch = lapi->getportbuffer(outportl, opts->duration);
+    if (!leftch) return DSPModuleReturnCode_Continue;
+    float *rightch = lapi->getportbuffer(outportr, opts->duration);
+    if (!rightch) return DSPModuleReturnCode_Continue;
 
-    size_t frames = openmpt_module_read_float_stereo(mod, rate, duration, leftch, rightch);
-    if (frames < duration)
+    size_t frames = openmpt_module_read_float_stereo(mod, opts->rate, opts->duration, leftch, rightch);
+    if (!frames && quitonsongend) return DSPModuleReturnCode_Quit;
+    else if (frames < opts->duration)
     {
-        memset(&leftch[frames], 0, (duration - frames) * sizeof(float));
-        memset(&rightch[frames], 0, (duration - frames) * sizeof(float));
+        memset(&leftch[frames], 0, (opts->duration - frames) * sizeof(float));
+        memset(&rightch[frames], 0, (opts->duration - frames) * sizeof(float));
     }
     
-    for (unsigned long long i = 0; i < duration; i++)
+    for (unsigned long long i = 0; i < opts->duration; i++)
     {
         leftch[i] = adjf(leftch[i], ampmod) * volmod;
         rightch[i] = adjf(rightch[i], ampmod) * volmod;
     }
     
-    if (!frames && quitonsongend) return 1;
-    return 0;
+    return DSPModuleReturnCode_Continue;
 }
 
-void dspmodule_cleanup(void)
+void dspmodule_cleanup(DSPModuleCleanupFunctionOptions * restrict opts)
 {
     openmpt_module_destroy(mod);
 }
